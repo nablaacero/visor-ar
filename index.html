@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ensambles en AR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+/* VOICE: taller de fabricación — directo, técnico, sin adornos
+   IDEA: la mesa de armado: la pieza al centro, la hoja de despiece al lado
+   PICTURE: el ensamble 3D, grande, que se separa en sus piezas
+   COLOUR and TYPE: concreto claro / grafito de noche; pieza principal rojo primario, perfiles acero, placas azul; Barlow
+   LAYOUT: visor arriba (móvil) o a la izquierda; controles, ficha y despiece en columna */
+:root{color-scheme:light dark;--bg:light-dark(#eceeec,#141719);--panel:light-dark(#ffffff,#1d2124);--ink:light-dark(#16191b,#e9ecee);--mute:light-dark(#5d666d,#97a1a8);--line:light-dark(#d5d9dc,#2e3439);--red:#cf3f26;--steel:light-dark(#76838d,#9aa7b1);--blue:#3a6db5;--sel:#f2c200}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Barlow,system-ui,sans-serif;overflow-x:clip}
+h1,h2{font-family:"Barlow Semi Condensed",Barlow,sans-serif;font-weight:600;line-height:1.05;margin:0;text-wrap:balance}
+h1{font-size:clamp(26px,4vw,36px)}h2{font-size:20px;margin-bottom:8px}
+.top{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;justify-content:space-between;padding:16px max(3vw,14px) 10px}
+.top p{margin:2px 0 0;color:var(--mute);font-size:14px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{min-height:44px;padding:0 16px;border-radius:22px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:600 16px Barlow,sans-serif;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;padding:0 max(3vw,14px) 24px}
+.view{position:relative;height:min(74vh,760px);border-radius:14px;overflow:hidden;background:radial-gradient(ellipse at 50% 30%,light-dark(#fbfcfc,#23292d),var(--bg) 75%);border:1px solid var(--line);touch-action:none}
+.view canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hint{position:absolute;left:12px;bottom:10px;font-size:13px;color:var(--mute);pointer-events:none}
+.legend{position:absolute;left:12px;top:10px;display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--mute);pointer-events:none}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.side{display:flex;flex-direction:column;gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+label{font-weight:500}
+input[type=range]{width:100%;height:44px;accent-color:var(--red)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:500 16px Barlow,sans-serif;cursor:pointer}
+.btn:focus-visible,.chip:focus-visible,tr:focus-visible{outline:3px solid var(--sel);outline-offset:2px}
+.ar{width:100%;min-height:54px;margin-top:10px;border:0;border-radius:12px;background:var(--red);color:#fff;font:600 19px "Barlow Semi Condensed",Barlow,sans-serif;cursor:pointer}
+.ar[disabled]{opacity:.55;cursor:default}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;min-height:44px;border:0;background:transparent;color:var(--ink);font:500 15px Barlow,sans-serif;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.note{font-size:13px;color:var(--mute);margin:8px 0 0}
+dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;margin:0;font-size:15px}
+dt{color:var(--mute)}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.big{font:600 30px "Barlow Semi Condensed",Barlow,sans-serif}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:500;color:var(--mute);border-bottom:1px solid var(--line);padding:6px 4px}
+td{padding:8px 4px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+td.n,th.n{text-align:right;white-space:nowrap}
+tbody tr{cursor:pointer}tbody tr.on{background:light-dark(#fff6cc,#3a3310)}
+.sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+.scroll{overflow-x:auto}
+@media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}.view{height:58vh}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+</head>
+<body>
+<header class="top">
+  <div><h1 id="title">Ensamble</h1><p id="sub">Cargando modelo…</p></div>
+  <div class="chips" id="chips"></div>
+</header>
+<main class="wrap">
+  <section class="view" id="view" aria-label="Visor 3D del ensamble">
+    <div class="legend"><span><i style="background:var(--red)"></i>Pieza principal</span><span><i style="background:var(--steel)"></i>Perfiles</span><span><i style="background:var(--blue)"></i>Placas</span></div>
+    <div class="hint">Arrastra para girar · pellizca para acercar · toca una pieza</div>
+  </section>
+  <aside class="side">
+    <div class="card">
+      <label for="exp">Separar piezas</label>
+      <input id="exp" type="range" min="0" max="1" step="0.01" value="0">
+      <div class="row"><button class="btn" id="anim">Animar despiece</button><button class="btn" id="reset">Restablecer</button></div>
+      <h2 style="margin-top:14px">Ver en AR</h2>
+      <div class="seg" role="group" aria-label="Escala en AR"><button id="sReal" aria-pressed="true">Tamaño real</button><button id="sMesa" aria-pressed="false">Maqueta 1 m</button></div>
+      <button class="ar" id="arBtn" disabled>Preparando AR…</button>
+      <p class="note" id="arNote">La vista AR lleva el estado actual: piezas separadas u ocultas incluidas.</p>
+    </div>
+    <div class="card" id="info"><h2>Pieza</h2><p class="note" style="margin:0">Toca una pieza en el modelo o en el despiece para ver sus datos.</p></div>
+    <div class="card"><h2>Despiece</h2><div class="scroll"><table><thead><tr><th>Marca</th><th>Perfil</th><th class="n">Cant.</th><th class="n">kg</th></tr></thead><tbody id="list"></tbody></table></div></div>
+  </aside>
+</main>
+<model-viewer id="mv" loading="eager" ar ar-modes="webxr quick-look" ar-placement="floor" ar-scale="fixed" shadow-intensity="1" style="position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:0;pointer-events:none" aria-hidden="true"></model-viewer>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
+{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=(n,d=1)=>n==null?'—':Number(n).toLocaleString('es-GT',{minimumFractionDigits:d,maximumFractionDigits:d});
+const view=$('view'), mv=$('mv');
+const COL={main:0xcf3f26,member:0x8796a1,plate:0x3a6db5};
+const kindOf=p=>p.main?'main':(p.t==='Plate'?'plate':'member');
+const mats={},hiMats={};
+for(const k in COL){mats[k]=new THREE.MeshStandardMaterial({color:COL[k],metalness:.35,roughness:.55,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1});
+  hiMats[k]=mats[k].clone();hiMats[k].color.set(0xf2c200);hiMats[k].emissive.set(0x443300);}
+const edgeMat=new THREE.LineBasicMaterial({color:0x101315,transparent:true,opacity:.22});
+
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));view.appendChild(renderer.domElement);
+const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(40,1,.01,500);
+scene.add(new THREE.HemisphereLight(0xffffff,0x6b6f72,1.6));
+const sun=new THREE.DirectionalLight(0xffffff,1.6);sun.position.set(5,10,7);scene.add(sun);
+const fill=new THREE.DirectionalLight(0xffffff,.5);fill.position.set(-6,3,-5);scene.add(fill);
+const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;
+const root=new THREE.Group();root.rotation.x=-Math.PI/2;scene.add(root);
+const resize=()=>{const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();};
+const ro=new ResizeObserver(resize);ro.observe(view);
+
+let data=[],asm=null,meshes=[],selMark=null,scaleMode='real',rebuildT=0,arUrl=null;
+
+function load(i){
+  asm=data[i];selMark=null;
+  for(const m of meshes){m.geometry.dispose();m.children[0]?.geometry.dispose();}
+  root.clear();meshes=[];
+  for(const p of asm.parts){
+    let g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.BufferAttribute(Float32Array.from(p.v,x=>x/10000),3));
+    g.setIndex(p.f);g=g.toNonIndexed();g.computeVertexNormals();
+    const k=kindOf(p), m=new THREE.Mesh(g,mats[k]);
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g,25),edgeMat));
+    g.computeBoundingBox();m.userData={p,k,c:g.boundingBox.getCenter(new THREE.Vector3())};
+    root.add(m);meshes.push(m);
+  }
+  // dirección de despiece: desde el eje de la pieza principal hacia cada pieza
+  const main=meshes.find(m=>m.userData.p.main)||meshes[0];
+  const bb=main.geometry.boundingBox, sz=bb.getSize(new THREE.Vector3()), ctr=bb.getCenter(new THREE.Vector3());
+  const ax=['x','y','z'].reduce((a,b)=>sz[b]>sz[a]?b:a);
+  for(const m of meshes){
+    const c=m.userData.c, q=ctr.clone(); q[ax]=THREE.MathUtils.clamp(c[ax],bb.min[ax],bb.max[ax]);
+    let d=c.clone().sub(q); if(m===main)d.set(0,0,0); else if(d.length()<1e-3)d=c.clone().sub(ctr).setComponent(['x','y','z'].indexOf(ax),0);
+    if(m!==main&&d.length()<1e-3)d.set(0,0,1);
+    if(m!==main){const u=ctr.clone();u[ax]=c[ax];const rad=c.clone().sub(u);if(rad.length()>.01&&(c[ax]>bb.max[ax]||c[ax]<bb.min[ax]))d=d.normalize().add(rad.normalize().multiplyScalar(.9));}
+    const L=d.length();m.userData.off=m===main?d:d.clone().normalize().multiplyScalar(.25+.04*Math.max(...asm.size)+.6*Math.min(L,1));
+  }
+  $('title').textContent=asm.mark;
+  const kg=asm.parts.reduce((s,p)=>s+(p.kg||0),0);
+  $('sub').textContent=`${asm.project} · ${asm.parts.length} piezas · ${fmt(kg,0)} kg · ${fmt(Math.max(...asm.size),2)} m`;
+  for(const b of $('chips').children)b.setAttribute('aria-pressed',b.dataset.i==i);
+  $('exp').value=0;applyExplode(0);renderList();showInfo();fit();queueAR();
+}
+function applyExplode(t){for(const m of meshes)m.position.copy(m.userData.off).multiplyScalar(t);}
+function fit(){
+  const t=+$('exp').value;applyExplode(1);root.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(root);applyExplode(0);root.updateMatrixWorld(true);box.union(new THREE.Box3().setFromObject(root));applyExplode(t);
+  const s=box.getBoundingSphere(new THREE.Sphere()), r=s.radius/Math.sin(THREE.MathUtils.degToRad(camera.fov/2))*1.05;
+  controls.target.copy(s.center);camera.position.copy(s.center).add(new THREE.Vector3(.9,.6,1).normalize().multiplyScalar(r));
+  camera.near=r/200;camera.far=r*20;camera.updateProjectionMatrix();controls.update();
+}
+function groups(){
+  const g=new Map();
+  for(const p of asm.parts){const e=g.get(p.m)||{p,n:0};e.n++;g.set(p.m,e);}
+  return [...g.values()].sort((a,b)=>(b.p.main-a.p.main)||(b.p.kg*b.n-a.p.kg*a.n));
+}
+function renderList(){
+  $('list').innerHTML=groups().map(({p,n})=>`<tr tabindex="0" data-m="${esc(p.m)}" class="${p.m===selMark?'on':''}"><td><span class="sw" style="background:#${COL[kindOf(p)].toString(16).padStart(6,'0')}"></span>${esc(p.m)}</td><td>${esc(p.perfil)}</td><td class="n">${n}</td><td class="n">${fmt((p.kg||0)*n)}</td></tr>`).join('');
+}
+function select(mark){
+  selMark=mark===selMark?null:mark;
+  for(const m of meshes)m.material=(m.userData.p.m===selMark?hiMats:mats)[m.userData.k];
+  renderList();showInfo();
+}
+function showInfo(){
+  const c=$('info');
+  if(!selMark){c.innerHTML='<h2>Pieza</h2><p class="note" style="margin:0">Toca una pieza en el modelo o en el despiece para ver sus datos.</p>';return;}
+  const all=asm.parts.filter(p=>p.m===selMark),p=all[0],solo=meshes.some(m=>!m.visible);
+  const rows=[['Perfil',p.perfil],['Rol',p.rol],['Material',p.mat],['Longitud',p.lon?fmt(p.lon,0)+' mm':null],['Espesor',p.esp?fmt(p.esp)+' mm':null],['Ancho',p.anc?fmt(p.anc)+' mm':null],
+    ['Peso unitario',fmt(p.kg)+' kg'],['Cantidad',all.length],['Peso total',fmt(p.kg*all.length)+' kg'],['Área de pintura',fmt(p.pint*all.length,2)+' m²']].filter(r=>r[1]!=null);
+  c.innerHTML=`<h2>${p.main?'Pieza principal':p.t==='Plate'?'Placa':'Perfil'}</h2><div class="big">${esc(p.m)}</div>
+  <dl>${rows.map(r=>`<dt>${r[0]}</dt><dd>${esc(r[1])}</dd>`).join('')}</dl>
+  <div class="row" style="margin-top:10px"><button class="btn" id="solo">${solo?'Mostrar todo':'Ver solo esta marca'}</button></div>`;
+  $('solo').onclick=()=>{const on=!meshes.some(m=>!m.visible);for(const m of meshes)m.visible=!on||m.userData.p.m===selMark;showInfo();queueAR();};
+}
+// --- AR: exporta el estado actual a GLB y se lo pasa a <model-viewer>
+function queueAR(){clearTimeout(rebuildT);$('arBtn').disabled=true;$('arBtn').textContent='Preparando AR…';rebuildT=setTimeout(buildAR,350);}
+async function buildAR(){
+  const g=new THREE.Group();g.rotation.x=-Math.PI/2;
+  if(scaleMode==='mesa')g.scale.setScalar(1/Math.max(...asm.size));
+  for(const m of meshes)if(m.visible){const x=new THREE.Mesh(m.geometry,mats[m.userData.k]);x.position.copy(m.position);x.name=m.userData.p.m;g.add(x);}
+  const sc=new THREE.Scene();sc.add(g);
+  const buf=await new GLTFExporter().parseAsync(sc,{binary:true});
+  if(arUrl)URL.revokeObjectURL(arUrl);arUrl=URL.createObjectURL(new Blob([buf],{type:'model/gltf-binary'}));
+  mv.setAttribute('ar-scale',scaleMode==='real'?'fixed':'auto');mv.src=arUrl;
+}
+mv.addEventListener('load',()=>{const ok=mv.canActivateAR,b=$('arBtn');b.disabled=false;
+  b.textContent=ok?'Ver en AR':'AR no disponible aquí';
+  $('arNote').textContent=ok?(scaleMode==='real'?'Apunta al piso, coloca el ensamble a escala 1:1 y camina alrededor.':'Apunta a una mesa; puedes pellizcar para cambiar el tamaño.')
+   :'Abre esta página directamente en Chrome (Android con ARCore) o Safari (iPhone/iPad). Dentro de otras apps la cámara está bloqueada.';});
+$('arBtn').onclick=()=>{if(mv.canActivateAR)mv.activateAR();};
+mv.addEventListener('ar-status',e=>{if(e.detail.status==='failed')$('arNote').textContent='No se pudo iniciar la AR en este dispositivo.';});
+
+// --- interacción
+$('exp').addEventListener('input',e=>applyExplode(+e.target.value));
+$('exp').addEventListener('change',queueAR);
+let animId=0;
+$('anim').onclick=()=>{cancelAnimationFrame(animId);const from=+$('exp').value,to=from>.5?0:1,t0=performance.now(),dur=matchMedia('(prefers-reduced-motion: reduce)').matches?1:1200;
+  const step=n=>{const k=Math.min(1,(n-t0)/dur),e=k<.5?2*k*k:1-(-2*k+2)**2/2,v=from+(to-from)*e;$('exp').value=v;applyExplode(v);if(k<1)animId=requestAnimationFrame(step);else queueAR();};animId=requestAnimationFrame(step);};
+$('reset').onclick=()=>{$('exp').value=0;applyExplode(0);for(const m of meshes)m.visible=true;selMark=null;select(null);fit();queueAR();};
+const setScale=s=>{scaleMode=s;$('sReal').setAttribute('aria-pressed',s==='real');$('sMesa').setAttribute('aria-pressed',s==='mesa');queueAR();};
+$('sReal').onclick=()=>setScale('real');$('sMesa').onclick=()=>setScale('mesa');
+$('list').addEventListener('click',e=>{const r=e.target.closest('tr');if(r)select(r.dataset.m);});
+$('list').addEventListener('keydown',e=>{const r=e.target.closest('tr');if(r&&(e.key==='Enter'||e.key===' ')){e.preventDefault();select(r.dataset.m);}});
+const ray=new THREE.Raycaster(),ptr=new THREE.Vector2();let down=null;
+renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
+renderer.domElement.addEventListener('pointerup',e=>{
+  if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>6)return;
+  const r=renderer.domElement.getBoundingClientRect();ptr.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
+  ray.setFromCamera(ptr,camera);const hit=ray.intersectObjects(meshes.filter(m=>m.visible),false)[0];
+  if(hit)select(hit.object.userData.p.m);else if(selMark)select(selMark);
+});
+renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});
+
+fetch('assemblies.json').then(r=>r.json()).then(d=>{
+  data=d;$('chips').innerHTML=d.map((a,i)=>`<button class="chip" data-i="${i}" aria-pressed="false">${esc(a.mark)}</button>`).join('');
+  $('chips').onclick=e=>{const b=e.target.closest('.chip');if(b)load(+b.dataset.i);};
+  const h=location.hash.slice(1),i=d.findIndex(a=>a.mark===h);load(i<0?0:i);
+}).catch(()=>{$('sub').textContent='No se pudo cargar assemblies.json (debe estar junto a esta página).';});
+addEventListener('hashchange',()=>{const i=data.findIndex(a=>a.mark===location.hash.slice(1));if(i>=0)load(i);});
+}
+</script>
+</body>
+</html>
