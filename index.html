@@ -257,13 +257,14 @@ async function signedUrl(file){const r=await tc(`/files/fs/${file.id}/downloadur
 async function tcJson(file){const r=await fetch(await signedUrl(file));if(!r.ok)throw new Error('No se pudo descargar '+file.name);return r.json();}
 async function refreshTab(c){try{const u=await signedUrl(c.file);const t=$('tab');t.href=location.origin+location.pathname+'#src='+encodeURIComponent(u);t.hidden=false;}catch(e){$('tab').hidden=true;}}
 const loadScript=src=>new Promise((ok,ko)=>{const x=document.createElement('script');x.src=src;x.onload=ok;x.onerror=ko;document.head.appendChild(x);});
+const norm=t=>String(t).toLowerCase().replace(/[\s_\-.]+/g,'');
 async function scan(){
   const path=$('folder').value.trim();try{localStorage.setItem('arFolder',path);}catch(e){}
   tcMsg('Buscando archivos…');
   try{
     let id=rootId;
     for(const seg of path.split('/').filter(Boolean)){
-      const items=await tc(`/folders/${id}/items`),f=items.find(x=>x.type==='FOLDER'&&x.name.trim().toLowerCase()===seg.trim().toLowerCase());
+      const items=await tc(`/folders/${id}/items`),f=items.find(x=>x.type==='FOLDER'&&norm(x.name)===norm(seg));
       if(!f)throw new Error(`No encontré la carpeta "${seg}".`);id=f.id;
     }
     const files=(await tc(`/folders/${id}/items`)).filter(x=>x.type==='FILE'&&/\.json$/i.test(x.name));
@@ -289,7 +290,7 @@ async function onSelection(sel){
   }catch(e){tcMsg('No se pudieron leer las propiedades de la pieza.');}
 }
 async function startTC(){
-  $('tcbar').hidden=false;$('folder').value=(()=>{try{return localStorage.getItem('arFolder')}catch(e){}})()||'AR_ENSAMBLES';
+  $('tcbar').hidden=false;$('folder').value=(()=>{try{return localStorage.getItem('arFolder')}catch(e){}})()||'5_FAB/5.6 AR_ENSAMBLES';
   $('scan').onclick=scan;$('folder').onkeydown=e=>{if(e.key==='Enter')scan();};
   empty('Conectando con Trimble Connect…');
   try{
