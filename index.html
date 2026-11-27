@@ -22,6 +22,8 @@ h1{font-size:clamp(26px,4vw,36px)}h2{font-size:20px;margin-bottom:8px}
 .top p{margin:2px 0 0;color:var(--mute);font-size:14px}
 .chips{display:flex;gap:8px;flex-wrap:wrap}
 .chip{min-height:44px;padding:0 16px;border-radius:22px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:600 16px Barlow,sans-serif;cursor:pointer}
+.chip.file{display:inline-flex;align-items:center;text-decoration:none;font-weight:500}
+select.chip{padding-right:10px;max-width:14em}
 .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .wrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;padding:0 max(3vw,14px) 24px}
 .view{position:relative;height:min(74vh,760px);border-radius:14px;overflow:hidden;background:radial-gradient(ellipse at 50% 30%,light-dark(#fbfcfc,#23292d),var(--bg) 75%);border:1px solid var(--line);touch-action:none}
@@ -61,7 +63,12 @@ tbody tr{cursor:pointer}tbody tr.on{background:light-dark(#fff6cc,#3a3310)}
 <body>
 <header class="top">
   <div><h1 id="title">Ensamble</h1><p id="sub">Cargando modelo…</p></div>
-  <div class="chips" id="chips"></div>
+  <div class="chips">
+    <span class="chips" id="chips"></span>
+    <select id="sel" class="chip" hidden aria-label="Ensamble"></select>
+    <label class="chip file" for="file">Abrir archivo</label><input type="file" id="file" accept=".json,application/json" hidden>
+    <a class="chip file" id="tab" target="_blank" rel="noopener" hidden>Abrir para AR ↗</a>
+  </div>
 </header>
 <main class="wrap">
   <section class="view" id="view" aria-label="Visor 3D del ensamble">
@@ -78,6 +85,10 @@ tbody tr{cursor:pointer}tbody tr.on{background:light-dark(#fff6cc,#3a3310)}
       <button class="ar" id="arBtn" disabled>Preparando AR…</button>
       <p class="note" id="arNote">La vista AR lleva el estado actual: piezas separadas u ocultas incluidas.</p>
     </div>
+    <div class="card" id="tcbar" hidden><h2>Trimble Connect</h2>
+      <label for="folder">Carpeta de los JSON en el proyecto</label>
+      <div class="row"><input id="folder" class="btn" style="flex:1;min-width:0;text-align:left" spellcheck="false"><button class="btn" id="scan">Buscar</button></div>
+      <p class="note" id="tcmsg">Conectando…</p></div>
     <div class="card" id="info"><h2>Pieza</h2><p class="note" style="margin:0">Toca una pieza en el modelo o en el despiece para ver sus datos.</p></div>
     <div class="card"><h2>Despiece</h2><div class="scroll"><table><thead><tr><th>Marca</th><th>Perfil</th><th class="n">Cant.</th><th class="n">kg</th></tr></thead><tbody id="list"></tbody></table></div></div>
   </aside>
@@ -110,10 +121,10 @@ const root=new THREE.Group();root.rotation.x=-Math.PI/2;scene.add(root);
 const resize=()=>{const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();};
 const ro=new ResizeObserver(resize);ro.observe(view);
 
-let data=[],asm=null,meshes=[],selMark=null,scaleMode='real',rebuildT=0,arUrl=null;
+let catalog=[],asm=null,meshes=[],selMark=null,scaleMode='real',rebuildT=0,arUrl=null;
 
-function load(i){
-  asm=data[i];selMark=null;
+function show(a){
+  asm=a;selMark=null;
   for(const m of meshes){m.geometry.dispose();m.children[0]?.geometry.dispose();}
   root.clear();meshes=[];
   for(const p of asm.parts){
@@ -139,7 +150,7 @@ function load(i){
   $('title').textContent=asm.mark;
   const kg=asm.parts.reduce((s,p)=>s+(p.kg||0),0);
   $('sub').textContent=`${asm.project} · ${asm.parts.length} piezas · ${fmt(kg,0)} kg · ${fmt(Math.max(...asm.size),2)} m`;
-  for(const b of $('chips').children)b.setAttribute('aria-pressed',b.dataset.i==i);
+  renderPicker();
   $('exp').value=0;applyExplode(0);renderList();showInfo();fit();queueAR();
 }
 function applyExplode(t){for(const m of meshes)m.position.copy(m.userData.off).multiplyScalar(t);}
@@ -154,7 +165,7 @@ function groups(){
   for(const p of asm.parts){const e=g.get(p.m)||{p,n:0};e.n++;g.set(p.m,e);}
   return [...g.values()].sort((a,b)=>(b.p.main-a.p.main)||(b.p.kg*b.n-a.p.kg*a.n));
 }
-function renderList(){
+function renderList(){if(!asm)return;
   $('list').innerHTML=groups().map(({p,n})=>`<tr tabindex="0" data-m="${esc(p.m)}" class="${p.m===selMark?'on':''}"><td><span class="sw" style="background:#${COL[kindOf(p)].toString(16).padStart(6,'0')}"></span>${esc(p.m)}</td><td>${esc(p.perfil)}</td><td class="n">${n}</td><td class="n">${fmt((p.kg||0)*n)}</td></tr>`).join('');
 }
 function select(mark){
@@ -174,7 +185,7 @@ function showInfo(){
   $('solo').onclick=()=>{const on=!meshes.some(m=>!m.visible);for(const m of meshes)m.visible=!on||m.userData.p.m===selMark;showInfo();queueAR();};
 }
 // --- AR: exporta el estado actual a GLB y se lo pasa a <model-viewer>
-function queueAR(){clearTimeout(rebuildT);$('arBtn').disabled=true;$('arBtn').textContent='Preparando AR…';rebuildT=setTimeout(buildAR,350);}
+function queueAR(){if(!asm)return;clearTimeout(rebuildT);$('arBtn').disabled=true;$('arBtn').textContent='Preparando AR…';rebuildT=setTimeout(buildAR,350);}
 async function buildAR(){
   const g=new THREE.Group();g.rotation.x=-Math.PI/2;
   if(scaleMode==='mesa')g.scale.setScalar(1/Math.max(...asm.size));
@@ -197,7 +208,7 @@ $('exp').addEventListener('change',queueAR);
 let animId=0;
 $('anim').onclick=()=>{cancelAnimationFrame(animId);const from=+$('exp').value,to=from>.5?0:1,t0=performance.now(),dur=matchMedia('(prefers-reduced-motion: reduce)').matches?1:1200;
   const step=n=>{const k=Math.min(1,(n-t0)/dur),e=k<.5?2*k*k:1-(-2*k+2)**2/2,v=from+(to-from)*e;$('exp').value=v;applyExplode(v);if(k<1)animId=requestAnimationFrame(step);else queueAR();};animId=requestAnimationFrame(step);};
-$('reset').onclick=()=>{$('exp').value=0;applyExplode(0);for(const m of meshes)m.visible=true;selMark=null;select(null);fit();queueAR();};
+$('reset').onclick=()=>{if(!asm)return;$('exp').value=0;applyExplode(0);for(const m of meshes)m.visible=true;selMark=null;select(null);fit();queueAR();};
 const setScale=s=>{scaleMode=s;$('sReal').setAttribute('aria-pressed',s==='real');$('sMesa').setAttribute('aria-pressed',s==='mesa');queueAR();};
 $('sReal').onclick=()=>setScale('real');$('sMesa').onclick=()=>setScale('mesa');
 $('list').addEventListener('click',e=>{const r=e.target.closest('tr');if(r)select(r.dataset.m);});
@@ -212,12 +223,106 @@ renderer.domElement.addEventListener('pointerup',e=>{
 });
 renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});
 
-fetch('assemblies.json').then(r=>r.json()).then(d=>{
-  data=d;$('chips').innerHTML=d.map((a,i)=>`<button class="chip" data-i="${i}" aria-pressed="false">${esc(a.mark)}</button>`).join('');
-  $('chips').onclick=e=>{const b=e.target.closest('.chip');if(b)load(+b.dataset.i);};
-  const h=location.hash.slice(1),i=d.findIndex(a=>a.mark===h);load(i<0?0:i);
-}).catch(()=>{$('sub').textContent='No se pudo cargar assemblies.json (debe estar junto a esta página).';});
-addEventListener('hashchange',()=>{const i=data.findIndex(a=>a.mark===location.hash.slice(1));if(i>=0)load(i);});
+// --- catálogo de ensambles (archivo local, assemblies.json o carpeta de Trimble Connect)
+function addAll(arr,file){
+  for(const a of [].concat(arr)){const c=catalog.find(x=>x.mark===a.mark);if(c){c.a=a;}else catalog.push({mark:a.mark,a,file});}
+  catalog.sort((x,y)=>x.mark.localeCompare(y.mark,'es',{numeric:true}));renderPicker();
+}
+function renderPicker(){
+  const many=catalog.length>6;$('chips').hidden=many;$('sel').hidden=!many;
+  if(many){$('sel').innerHTML='<option value="">Elegir ensamble…</option>'+catalog.map(c=>`<option>${esc(c.mark)}</option>`).join('');if(asm)$('sel').value=asm.mark;}
+  else $('chips').innerHTML=catalog.map(c=>`<button class="chip" data-m="${esc(c.mark)}" aria-pressed="${asm?.mark===c.mark}">${esc(c.mark)}</button>`).join('');
+}
+async function openMark(mark){
+  const c=catalog.find(x=>x.mark.toUpperCase()===String(mark).trim().toUpperCase());if(!c)return false;
+  if(!c.a){$('sub').textContent=`Descargando ${c.mark}…`;const arr=[].concat(await tcJson(c.file));c.a=arr.find(a=>a.mark===c.mark)||arr[0];}
+  if(asm!==c.a)show(c.a);
+  if(TC)refreshTab(c);
+  return true;
+}
+function empty(msg){$('title').textContent='Visor de ensambles';$('sub').textContent=msg;$('arBtn').textContent='Sin ensamble';}
+$('chips').onclick=e=>{const b=e.target.closest('.chip');if(b)openMark(b.dataset.m);};
+$('sel').onchange=e=>{if(e.target.value)openMark(e.target.value);};
+$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;
+  try{const d=JSON.parse(await f.text());addAll(d);openMark([].concat(d)[0].mark);}catch(err){$('sub').textContent='El archivo no es un JSON de ensambles válido.';}
+  e.target.value='';};
+
+// --- modo Trimble Connect (extensión del visor 3D)
+const TC=new URLSearchParams(location.search).has('tc')||/connect\.trimble\.com/.test(document.referrer);
+let API=null,token=null,host=null,rootId=null;
+const HOSTS=['https://app.connect.trimble.com','https://app21.connect.trimble.com','https://app31.connect.trimble.com','https://app32.connect.trimble.com'];
+const tcMsg=t=>$('tcmsg').textContent=t;
+async function tc(path){const r=await fetch(host+'/tc/api/2.0'+path,{headers:{Authorization:'Bearer '+token}});if(!r.ok)throw new Error(`${r.status} en ${path}`);return r.json();}
+async function signedUrl(file){const r=await tc(`/files/fs/${file.id}/downloadurl`);return r.url;}
+async function tcJson(file){const r=await fetch(await signedUrl(file));if(!r.ok)throw new Error('No se pudo descargar '+file.name);return r.json();}
+async function refreshTab(c){try{const u=await signedUrl(c.file);const t=$('tab');t.href=location.origin+location.pathname+'#src='+encodeURIComponent(u);t.hidden=false;}catch(e){$('tab').hidden=true;}}
+const loadScript=src=>new Promise((ok,ko)=>{const x=document.createElement('script');x.src=src;x.onload=ok;x.onerror=ko;document.head.appendChild(x);});
+async function scan(){
+  const path=$('folder').value.trim();try{localStorage.setItem('arFolder',path);}catch(e){}
+  tcMsg('Buscando archivos…');
+  try{
+    let id=rootId;
+    for(const seg of path.split('/').filter(Boolean)){
+      const items=await tc(`/folders/${id}/items`),f=items.find(x=>x.type==='FOLDER'&&x.name.trim().toLowerCase()===seg.trim().toLowerCase());
+      if(!f)throw new Error(`No encontré la carpeta "${seg}".`);id=f.id;
+    }
+    const files=(await tc(`/folders/${id}/items`)).filter(x=>x.type==='FILE'&&/\.json$/i.test(x.name));
+    catalog=files.map(f=>({mark:f.name.replace(/(\.ar)?\.json$/i,''),file:f}));
+    catalog.sort((x,y)=>x.mark.localeCompare(y.mark,'es',{numeric:true}));renderPicker();
+    tcMsg(files.length?`${files.length} ensambles disponibles. Selecciona una pieza en el modelo para abrir su ensamble.`:'La carpeta no tiene archivos .json.');
+    if(files.length&&!asm)empty('Selecciona una pieza en el modelo o elige un ensamble.');
+  }catch(e){tcMsg(e.message);}
+}
+async function onSelection(sel){
+  const s=[].concat(sel||[]).find(x=>x.objectRuntimeIds?.length);if(!s||!catalog.length)return;
+  try{
+    const [o]=await API.viewer.getObjectProperties(s.modelId,[s.objectRuntimeIds[0]]);if(!o)return;
+    const props=(o.properties||[]).flatMap(ps=>ps.properties||[]);
+    const val=re=>props.filter(p=>re.test(p.name)).map(p=>String(p.value));
+    const asmC=[o.product?.name,...val(/main ?part|mainpartmark|assembly|ensamble|product ?name/i)].filter(Boolean);
+    for(const m of asmC)if(await openMark(m)){
+      const part=[...val(/singlepartmark|single ?part|part ?mark|^tag$/i),o.product?.name].find(pm=>asm.parts.some(p=>p.m===pm));
+      if(part&&part!==selMark)select(part);
+      return;
+    }
+    tcMsg(`No hay archivo AR para ${asmC[0]||'esa pieza'} en la carpeta.`);
+  }catch(e){tcMsg('No se pudieron leer las propiedades de la pieza.');}
+}
+async function startTC(){
+  $('tcbar').hidden=false;$('folder').value=(()=>{try{return localStorage.getItem('arFolder')}catch(e){}})()||'AR_ENSAMBLES';
+  $('scan').onclick=scan;$('folder').onkeydown=e=>{if(e.key==='Enter')scan();};
+  empty('Conectando con Trimble Connect…');
+  try{
+    await loadScript('https://components.connect.trimble.com/trimble-connect-workspace-api/index.js');
+    API=await TrimbleConnectWorkspace.connect(window.parent,(ev,args)=>{
+      if(ev==='extension.accessToken'&&args?.data&&args.data!=='pending'&&args.data!=='denied'){const first=!token;token=args.data;if(first)afterToken();}
+      if(ev==='viewer.onSelectionChanged')onSelection(args?.data);
+    },30000);
+    const t=await API.extension.requestPermission('accesstoken');
+    if(t&&t!=='pending'&&t!=='denied'&&!token){token=t;afterToken();}
+    else if(!token)tcMsg('Acepta el permiso de acceso que pide Trimble Connect para leer los archivos del proyecto.');
+  }catch(e){tcMsg('No se pudo conectar con Trimble Connect: '+e.message);}
+}
+async function afterToken(){
+  try{
+    const p=API.project.getProject?await API.project.getProject():await API.project.getCurrentProject();
+    for(const h of HOSTS){try{host=h;const pr=await tc(`/projects/${p.id}`);rootId=pr.rootId;break;}catch(e){host=null;}}
+    if(!host)throw new Error('no se encontró la región del proyecto');
+    await scan();
+  }catch(e){tcMsg('Error: '+e.message);}
+}
+
+// --- modo independiente (GitHub Pages / pestaña para AR)
+async function startStandalone(){
+  const h=decodeURIComponent(location.hash.slice(1));
+  try{
+    if(h.startsWith('src=')){const d=await (await fetch(h.slice(4))).json();addAll(d);const m=[].concat(d)[0].mark;history.replaceState(null,'','#'+m);await openMark(m);return;}
+    const r=await fetch('assemblies.json');if(!r.ok)throw 0;addAll(await r.json());
+    if(!(await openMark(h)))await openMark(catalog[0].mark);
+  }catch(e){empty(h.startsWith('src=')?'El enlace venció. Vuelve a abrirlo desde Trimble Connect.':'Toca "Abrir archivo" y elige el .json del ensamble (desde OneDrive, SharePoint o el teléfono).');}
+}
+addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(h&&!h.startsWith('src='))openMark(decodeURIComponent(h));});
+TC?startTC():startStandalone();
 }
 </script>
 </body>
